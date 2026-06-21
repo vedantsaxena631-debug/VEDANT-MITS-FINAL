@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  @apply text-slate-900 dark:text-slate-50 antialiased selection:bg-slate-900 selection:text-slate-50 dark:selection:bg-slate-50 dark:selection:text-slate-900;
+  background-color: transparent;
+}

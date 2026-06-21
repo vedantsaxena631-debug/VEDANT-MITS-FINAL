@@ -1,0 +1,8 @@
+{
+  "name": "MITS Student Portal",
+  "description": "High-performance academic portal for Madhav Institute of Technology and Science students, featuring dashboard metrics, real-time syllabus tracking, and performance history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
