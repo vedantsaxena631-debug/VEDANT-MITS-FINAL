@@ -26,6 +26,20 @@ const memoryGrievances: any[] = [
   }
 ];
 
+// In-memory fallback dataset for study materials
+const memoryMaterials: any[] = [
+  { id: "mat-1", title: 'Chapter 1: Intro to Operating Systems', course: 'CS302', type: 'PDF', date: 'Oct 20, 2026', size: '2.4 MB', description: 'Core slide deck covering Kernel architectures.' },
+  { id: "mat-2", title: 'Process Scheduling Algorithms', course: 'CS302', type: 'PPT', date: 'Oct 22, 2026', size: '5.1 MB', description: 'Interactive visual decks for FCFS/SJF/Priority.' },
+  { id: "mat-3", title: 'Lecture 4 Recording - Deadlocks', course: 'CS302', type: 'Video', date: 'Oct 23, 2026', size: '145 MB', description: 'Zoom lecture recording outlining Banker\'s Algorithm.' },
+];
+
+// In-memory fallback dataset for courses assignments
+const memoryAssignments: any[] = [
+  { id: "asg-1", title: 'Process Synchronization Implementation', course: 'CS302', deadline: 'Oct 30, 2026', time: '11:59 PM', submissions: 45, total: 75, status: 'Active' },
+  { id: "asg-2", title: 'BST Operations Lab Record', course: 'CS301', deadline: 'Oct 25, 2026', time: '5:00 PM', submissions: 72, total: 80, status: 'Active' },
+  { id: "asg-3", title: 'SQL Queries Practice', course: 'CS303', deadline: 'Oct 15, 2026', time: '11:59 PM', submissions: 78, total: 80, status: 'Closed' },
+];
+
 // Supabase Connection Diagnostics / Setup Help endpoint
 app.get("/api/supabase/status", (req, res) => {
   const url = process.env.SUPABASE_URL;
@@ -36,7 +50,8 @@ app.get("/api/supabase/status", (req, res) => {
     configured,
     url: url ? url.replace(/(https?:\/\/)(.*)/i, "$1*****.$2") : null,
     requiredSchemaSql: `
-create table grievances (
+-- Grievances Table
+create table if not exists grievances (
   id text primary key,
   category text not null,
   subject text not null,
@@ -44,6 +59,33 @@ create table grievances (
   student_name text,
   enrollment_no text,
   status text default 'Pending',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Materials Upload Table
+create table if not exists materials (
+  id text primary key,
+  title text not null,
+  course text not null,
+  description text,
+  type text not null,
+  size text not null,
+  date text not null,
+  file_url text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Assignments Management Table
+create table if not exists assignments (
+  id text primary key,
+  title text not null,
+  course text not null,
+  deadline text not null,
+  time text not null,
+  submissions integer default 0,
+  total integer default 75,
+  status text default 'Active',
+  file_url text,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
     `.trim(),
@@ -133,6 +175,209 @@ app.post("/api/grievances", async (req, res) => {
   } catch (err: any) {
     console.error("Catch handler during grievance register:", err);
     res.status(500).json({ error: "Internal processing failed during grievance report compilation." });
+  }
+});
+
+// GET: Retrieve Shared materials (Supabase or Fallback Memory)
+app.get("/api/materials", async (req, res) => {
+  try {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (url && key) {
+      const db = getSupabaseClient();
+      const { data, error } = await db
+        .from("materials")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        return res.json(data);
+      }
+      console.warn("Supabase materials query warning (ensure 'materials' table exists):", error?.message);
+    }
+  } catch (err: any) {
+    console.error("Internal Supabase materials resolution caught exception:", err.message);
+  }
+  // Safe high-contrast fallback
+  res.json(memoryMaterials);
+});
+
+// POST: Faculty upload a study material resource 
+app.post("/api/materials", async (req, res) => {
+  try {
+    const { title, course, description, type, size, file_url } = req.body;
+
+    if (!title || !course || !type) {
+      return res.status(400).json({ error: "Missing required materials parameters (title, course, type)." });
+    }
+
+    const item = {
+      id: `mat-${Date.now()}`,
+      title,
+      course,
+      description: description || "",
+      type,
+      size: size || "2.1 MB",
+      date: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+      file_url: file_url || null,
+      created_at: new Date().toISOString()
+    };
+
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (url && key) {
+      const db = getSupabaseClient();
+      const { data, error } = await db
+        .from("materials")
+        .insert([item])
+        .select();
+
+      if (!error && data) {
+        return res.json({ success: true, data: data[0] });
+      }
+
+      console.warn("Supabase materials insert failed, running via fallback buffer.", error?.message);
+    }
+
+    memoryMaterials.unshift(item);
+    return res.json({ success: true, data: item, fallback: true });
+  } catch (err: any) {
+    console.error("Catch handler during material publish:", err);
+    res.status(500).json({ error: "Internal processing failed during study material publish." });
+  }
+});
+
+// DELETE: Terminate and discard a materials resource
+app.delete("/api/materials/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (url && key) {
+      const db = getSupabaseClient();
+      const { error } = await db
+        .from("materials")
+        .delete()
+        .eq("id", id);
+
+      if (!error) {
+        return res.json({ success: true });
+      }
+      console.warn("Supabase materials deletion failed, applying fallback delete:", error?.message);
+    }
+
+    const index = memoryMaterials.findIndex(m => m.id === id);
+    if (index !== -1) {
+      memoryMaterials.splice(index, 1);
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("Catch handler during material deletion:", err);
+    res.status(500).json({ error: "Internal processing failed during material deletion." });
+  }
+});
+
+// GET: Retrieve institutional course assignments
+app.get("/api/assignments", async (req, res) => {
+  try {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (url && key) {
+      const db = getSupabaseClient();
+      const { data, error } = await db
+        .from("assignments")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        return res.json(data);
+      }
+      console.warn("Supabase assignments query warning (ensure 'assignments' table exists):", error?.message);
+    }
+  } catch (err: any) {
+    console.error("Internal Supabase assignments lookup caught exception:", err.message);
+  }
+  res.json(memoryAssignments);
+});
+
+// POST: Faculty publish course assignment details
+app.post("/api/assignments", async (req, res) => {
+  try {
+    const { title, course, deadline, time, total, status } = req.body;
+
+    if (!title || !course || !deadline) {
+      return res.status(400).json({ error: "Missing required assignment parameters (title, course, deadline)." });
+    }
+
+    const item = {
+      id: `asg-${Date.now()}`,
+      title,
+      course,
+      deadline,
+      time: time || "11:59 PM",
+      submissions: 0,
+      total: total || 75,
+      status: status || "Active",
+      created_at: new Date().toISOString()
+    };
+
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (url && key) {
+      const db = getSupabaseClient();
+      const { data, error } = await db
+        .from("assignments")
+        .insert([item])
+        .select();
+
+      if (!error && data) {
+        return res.json({ success: true, data: data[0] });
+      }
+
+      console.warn("Supabase assignments insertion failed, running in memory fallback.", error?.message);
+    }
+
+    memoryAssignments.unshift(item);
+    return res.json({ success: true, data: item, fallback: true });
+  } catch (err: any) {
+    console.error("Catch handler during assignment setup:", err);
+    res.status(500).json({ error: "Internal processing failed during assignment registration." });
+  }
+});
+
+// DELETE: Delete task syllabus assignment
+app.delete("/api/assignments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (url && key) {
+      const db = getSupabaseClient();
+      const { error } = await db
+        .from("assignments")
+        .delete()
+        .eq("id", id);
+
+      if (!error) {
+        return res.json({ success: true });
+      }
+      console.warn("Supabase assignments delete failed, applying fallback delete:", error?.message);
+    }
+
+    const index = memoryAssignments.findIndex(a => a.id === id);
+    if (index !== -1) {
+      memoryAssignments.splice(index, 1);
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("Catch handler during assignment deletion:", err);
+    res.status(500).json({ error: "Internal processing failed during assignment deletion." });
   }
 });
 
